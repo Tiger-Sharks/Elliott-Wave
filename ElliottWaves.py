@@ -6,13 +6,14 @@ from scipy.signal import find_peaks
 from scipy.stats import linregress
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import plotly.io as pio
 import warnings
 warnings.filterwarnings('ignore')
 
 
 # ==== Data Handling Module ====
 
-class DaraHandler:
+class DataHandler:
     def __init__(self, data_path):
         self.data = pd.read_csv(data_path, index_col='Date', parse_dates=True)
         self.data = self.data[['Open', 'High', 'Low', 'Close']].dropna()
@@ -46,7 +47,7 @@ class WaveDetector:
                 p_idx += 1
             else:
                 zigzag.append(('trough', self.peaks[t_idx]))
-                t_idx
+                t_idx += 1
             return zigzag
 
     def classify_impulse(self, zigzag):
@@ -95,13 +96,19 @@ class WaveDetector:
         # Wave 3 is never shortest, not overlaps
         h = self.data.highs
         l = self.data.lows
+        # wave1_len = abs(h[waves[1]] - l[waves[0]])
+        # wave2_len = abs(h[waves[1]] - l[waves[2]])
+        # wave3_len = abs(h[waves[3]] - l[waves[2]])
+        # wave4_len = abs(h[waves[3]] - l[waves[4]])
+        # wave5_len = abs(h[waves[5]] - l[waves[4]]) if len(waves) > 5 else 0
+
         wave1_len = abs(h[waves[1]] - l[waves[0]])
-        wave2_len = abs(h[waves[1]] - l[waves[2]])
         wave3_len = abs(h[waves[3]] - l[waves[2]])
-        wave4_len = abs(h[waves[3]] - l[waves[4]])
-        wave5_len = abs(h[waves[5]] - l[waves[4]]) if len(waves) > 5 else 0
+        wave5_len = abs(h[waves[3]] - l[waves[4]])
+
         if wave3_len <= min(wave1_len, wave5_len):
             return False
+        
         if l[waves[4]] > h[waves[1]]:
             return False
         return True
@@ -195,7 +202,7 @@ class Projector:
 # ==== Visualizer Module ====
 
 class Visualizer:
-    def __init__(self):
+    def __init__(self, data, structures, projections, channels):
         self.data = data
         self.structures = structures
         self.projections = projections
@@ -203,34 +210,62 @@ class Visualizer:
 
     def plot_chart(self):
         fig = make_subplots(rows= 1, cols = 1)
-        fig.add_trace(go.Candlestick(x = selfdata.dates,
-                                     open = self.data.data['Open'],
-                                     high = self.data.data['High'],
-                                     low = self.data.data['Low'],
-                                     close = self.data.data['Close']),
-                                    row = 1, cols = 1)
+        fig.add_trace(
+            go.Candlestick(
+                x = self.data.dates,
+                open = self.data.data['Open'],
+                high = self.data.data['High'],
+                low = self.data.data['Low'],
+                close = self.data.data['Close']
+            ),
+            row = 1, cols = 1)
+        
         # Add wave labels
         for struct in self.structures:
             for i, idx in enumerate(struct['waves']):
                 label = f"{struct['degree']} {i + 1}"
                 y = self.data.highs[idx] if i % 2 == 1 else self.data.lows[idx]
-                fig.add_annotation(x = self.data.dates[idx], y = y, text = label, showarrow = True)
+                fig.add_annotation(
+                    x = self.data.dates[idx],
+                    y = y,
+                    text = label,
+                    showarrow = True
+                )
         
         # Add channels (lines)
         for ch in self.channels:
-            fig.add_trace(go.Scatter(x = ch['x'], y = ch['y'], mode = 'lines', line = dict(dash = 'dash'), name = 'Channel'))
+            fig.add_trace(
+                go.Scatter(
+                    x = ch['x'],
+                    y = ch['y'],
+                    mode = 'lines',
+                    line = dict(dash = 'dash'),
+                    name = 'Channel'
+                )
+            )
         
         # Add projections (dashed lines)
         for proj in self.projections:
             x_future = [self.data.dates[-1], pd.date_range(self.data.dates[-1], periods = 2)[1]]
             y_future = [self.data.closes[-1], proj['price_target']]
-            fig.add_trace(go.Scatter(x = x_future, y = y_future, mode = 'lines', line = dict(dash = 'dot'), name = proj['scenerio']))
+            fig.add_trace(
+                go.Scatter(
+                    x = x_future,
+                    y = y_future,
+                    mode = 'lines',
+                    line = dict(dash = 'dot'),
+                    name = proj['scenerio']
+                )
+            )
         
 
-        fig.update_layout(title = "Elliott Wave Analysis", xaxis_rangeslider_visible = False)
+        fig.update_layout(
+            title = "Elliott Wave Analysis",
+            xaxis_rangeslider_visible = False
+        )
         pio.renderers.default = 'browser' 
         fig.show()
-        fig.write_image("output_graph.png")
+        # fig.write_image("output_graph.png")
 
 
 # ==== Channel Drawer ====
@@ -260,9 +295,11 @@ class MomentumConfirmation:
         delta = np.diff(data.closes)
         gain = np.where(delta > 0, delta, 0)
         loss = np.where(delta < 0, -delta, 0)
-        avg_gain = np.convolve(gain, np.ones(period)/ eriod, mode = 'valid')
-        avg_loss = np.convolve(loss, np.ones(period)/ eriod, mode = 'valid')
-        rs = avg_gain / avg_loss
+
+        avg_gain = np.convolve(gain, np.ones(period)/ period, mode = 'valid')
+        avg_loss = np.convolve(loss, np.ones(period)/ period, mode = 'valid')
+        
+        rs = avg_gain / (avg_loss + 1e-10)
         rsi = 100 - (100 / (1 + rs))
 
         return rsi
@@ -289,7 +326,7 @@ def run_elliott_wave_system(data_path):
     structures = Validator.validate_hierarchy(structures)
 
     # State
-    state = StateManagerstructures
+    state = StateManager(structures)
     print(f"Current Context: {state.current_context}")
     print(f"Alternatives: {state.alternates}")
     
@@ -301,15 +338,15 @@ def run_elliott_wave_system(data_path):
     channels = draw_channels(structures, data_handler)
 
     # Visualize
-    Visualizer = Visualizer(data_handler, structures, projections, channels)
-    Visualizer.plot_chart()
+    visualizer = Visualizer(data_handler, structures, projections, channels)
+    visualizer.plot_chart()
 
     # Optimal momentum
     momentum = MomentumConfirmation()
     momentum.validate_wave5(structures, data_handler)
 
 # Example Usage
-if __name__ == "__main":
+if __name__ == "__main__":
     # CSV file has columns: Date, Open, High, Low, Close
     run_elliott_wave_system('/home/tiger/Documents/Elliott Wave/NIFTY.csv')
 
