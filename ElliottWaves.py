@@ -348,5 +348,5 @@ def run_elliott_wave_system(data_path):
 # Example Usage
 if __name__ == "__main__":
     # CSV file has columns: Date, Open, High, Low, Close
-    run_elliott_wave_system('/home/tiger/Documents/Elliott Wave/NIFTY.csv')
+    run_elliott_wave_system('NIFTY.csv')
 
